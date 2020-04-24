@@ -1,2 +1,2 @@
 # hmcdynamics
-Explorying Hamiltonian Monte Carlo Dynamics
+Exploring Hamiltonian Monte Carlo dynamics
