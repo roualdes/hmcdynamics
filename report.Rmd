@@ -264,13 +264,36 @@ need for $M^{-1}$ itself. The proposed dynamics then follow
 
 $$ \mathrm{d}z = \begin{bmatrix} L^{T}p \\ -L \nabla U(q) \end{bmatrix}.$$
 
+XXX Consider the one step update to see the similarity between the two models.
 
-Overall, the proposed dynamics should be faster as there are fewer
+$$ q(t + \epsilon) = q(t) + LL^T... $$
+
+Then note how similar these methods are in terms of $p$ as a random
+variable.  In develop, we have $p \sim N(0, M)$ and hence in the from
+the one step we have $M^{-1}p$.  In terms of $LL^T = M^{-1}$, the
+distribution of $M^{-1}p \sim N(0, LL^T)$.  Similarly, for proposal
+$Lp \sim N(0, LL^T)$.
+
+The last (ha!) change necessary is to measure distance appropriately.
+In develop, and using the notation of @Betancourt:2017,
+
+$$ q_+(\mathfrak{t}) - q_-(\mathfrak{t}) = \int_{t = 0}^{t =
+T(\mathfrak{t})} \mathrm{d}t M^{-1} \cdot p(t). $$
+
+Since proposal generates $p \sim N(0, 1)$ instead of $p \sim N(0, M)$,
+replace $M^{-1}$ with $I$, the identity matrix of an appropriate size.
+This ensures distance is measured with respect to the appropriate
+metric.
+
+Overall, the proposed dynamics should be faster.  There are fewer
 decompositions and there is no matrix inverse via a call to solve().
 While $L \cdot \nabla U(q)$ is calculated twice within the leapfrog
 integrator, once for each half-step, the matrix vector multiplication
-should be more efficient in Eigen since $L$ is diagonal^[Thanks to Matija Rezar and Ben
-Bales for pointing this out.].
+should be more efficient in Eigen since $L$ is diagonal^[Thanks to
+Matija Rezar and Ben Bales for pointing this out.].  Moreover, by
+measuring distance with respect to an identity metric instead of with
+respect to $M^{-1}$, the calculation $M^{-1}p$, which happens number
+of leapfrog updates + 1 for every transition, is completely dropped.
 
 
 # Numerical Study {.tabset}
@@ -286,8 +309,24 @@ were left alone.
 XXX Repeat purpose of study and state where proposed code can be found.
 
 XXX Describe study
-seconds counted as time to fit 4 chains on 4 cores.
 leapfrog steps summed across all four chains.
+
+XXX preparation for results below. some models in stat_comp_benchmark
+were funky and I excluded them.  I tried to increase adapt_delta and
+max_depth, but if there was still considerable variation in the
+fitting time for either proposal or develop, then I just ignore that
+model.  Tried to first increase adapt delta from 0.8 to 0.9, and if
+needed from 0.9 to 0.95, but no higher.  If that didn't fix either
+stepsize or max tree depth issues, then I'd adjust max_depth from 10
+to 12, but no higher.  If there were still issues, like order of
+magnitude different fitting times, then I threw the model out.  If
+modifications to adapt_delta and/or max_treedepth fixed algorithmic
+issues for one branch, then these same changes were made to the other
+branch.  Such updates proceeded until both algorithms were relatively
+stable.  Some stable runs included less than 1% divergences, ignoring
+these as false positives.
+
+
 
 
 ## gauss_c25
