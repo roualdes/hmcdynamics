@@ -211,6 +211,8 @@ branch.  Such updates proceeded until both algorithms were relatively
 stable.  Some stable runs included less than 1% divergences, ignoring
 these as false positives.
 
+XXX time measured as the total time to fit 4 chains as if run sequentially
+
 
 
 # References
