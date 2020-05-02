@@ -39,5 +39,6 @@ vignettes/*.pdf
 # R Environment Variables
 .Renviron
 
-*$
+gaussian
+student_t
 *.csv.gz
