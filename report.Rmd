@@ -11,181 +11,12 @@ nocite: |
     @Leimkuhler:2018, @Team:2018, @Betancourt:2017
 ---
 
-# Introduction {.tabset}
+# Introduction
 
 ```{r setup, include=FALSE}
 
 knitr::opts_chunk$set(echo = TRUE)
 
-```
-
-```{r imports, include=FALSE}
-
-library(rstan)
-library(ggplot2)
-library(dplyr)
-library(kableExtra)
-library(tidyr)
-
-theme_set(theme_minimal(base_size = 18))
-
-```
-
-```{r functions, include=FALSE}
-
-read_samples <- function(dir, metric) {
-  dv_samplepaths <- paste0(dir, "/", dir, "_", metric, "_dv/", "samples", 1:4, ".csv")
-  pr_samplepaths <- paste0(dir, "/", dir, "_", metric, "_pr/", "samples", 1:4, ".csv")
-
-  dv_posterior <- read_stan_csv(dv_samplepaths)
-  pr_posterior <- read_stan_csv(pr_samplepaths)
-
-  list(dv = dv_posterior, pr = pr_posterior)
-}
-
-summary_stats <- function(mntr, metric, stat) {
-  parameter_names <- rownames(mntr)
-  tb <- tibble(mntr)[,stat]
-  tb$parameters <- parameter_names
-  tb$metric <- metric
-  tb$index <- 1:nrow(mntr)
-  tb
-}
-
-calculate_summary_dfs <- function(dv_posterior, pr_posterior, times, metric) {
-
-  dv_m <- monitor(dv_posterior)
-  dv2_m <- monitor(as.array(dv_posterior)^2)
-
-  pr_m <- monitor(pr_posterior)
-  pr2_m <- monitor(as.array(pr_posterior)^2)
-
-
-  num_parameters <- nrow(dv_m)
-  parameter_names <- rownames(dv_m)
-
-  ## ESS
-  dv_nleaps <- sum(sapply(1:4, function (x) {
-    attr(dv_posterior@sim$samples[[x]], "sampler_params")$n_leapfrog__}))
-  pr_nleaps <- sum(sapply(1:4, function (x) {
-    attr(pr_posterior@sim$samples[[x]], "sampler_params")$n_leapfrog__}))
-  leaps <- c(dv_nleaps, pr_nleaps)
-
-  dfESS <- data.frame(ess = c(dv_m$Bulk_ESS, pr_m$Bulk_ESS,
-                              dv_m$Tail_ESS, pr_m$Tail_ESS),
-                      ess2 = c(dv2_m$Bulk_ESS, pr2_m$Bulk_ESS,
-                               dv2_m$Tail_ESS, pr2_m$Tail_ESS),
-                      style = rep(c("Bulk", "Tail"), each = 2 * num_parameters),
-                      Branch = rep(rep(c("develop", "proposal"), each = num_parameters), 2),
-                      time = rep(times, each = 2 * num_parameters),
-                      leapfrog = rep(leaps, each = 2 * num_parameters),
-                      Parameters = rep(parameter_names, 4))
-
-  ## Rhat
-  dfR <- data.frame(Rhat = c(dv_m$Rhat, pr_m$Rhat),
-                    Branch = rep(c("develop", "proposal"), each = num_parameters),
-                    Parameters = rep(rownames(dv_m), 2))
-
-  ## Accuracy
-  mcse <- paste0("MCSE_", c("Q2.5", "Q25", "Q50", "Q75", "Q97.5", "SD"))
-  ## stats <- c("2.5%", "25%", "50%", "75%", "97.5%", "mean")
-
-
-  ## dfA <- bind_rows(summary_stats(dv_m, metric, stats),
-  ##                  summary_stats(pr_m, metric, stats))
-
-  dfMCSE <- bind_rows(summary_stats(dv_m, metric, mcse),
-                      summary_stats(pr_m, metric, mcse))
-
-  list(#df_stats = dfA,
-    dvm = dv_m,
-    prm = pr_m,
-    df_ess = dfESS,
-    df_rhat = dfR,
-    df_mcse = dfMCSE,
-    num_parameters = num_parameters,
-    parameter_names = parameter_names)
-}
-
-ess_bulk_plot <- function(df) {
-  df %>%
-    mutate(essps = ess / time) %>%
-    ggplot() +
-    geom_point(aes(Parameters, essps, shape=Branch, color=Branch), size = 3) +
-    facet_wrap(~style, scales="free_y") +
-    labs(y = "ESS(x) per second") +
-    theme(axis.text.x = element_text(angle = 30, hjust = 1))
-}
-
-ess_tail_plot <- function(df) {
-  df %>%
-    mutate(esspl = ess / leapfrog) %>%
-    ggplot() +
-    geom_point(aes(Parameters, esspl, shape=Branch, color=Branch), size = 3) +
-    facet_wrap(~style, scales="free_y") +
-    labs(y = "ESS(x) per leapfrog") +
-    theme(axis.text.x = element_text(angle = 30, hjust = 1))
-}
-
-ess2_bulk_plot <- function(df) {
-  df %>%
-    mutate(ess2ps = ess2 / time) %>%
-    ggplot() +
-    geom_point(aes(Parameters, ess2ps, shape=Branch, color=Branch), size = 3) +
-    facet_wrap(~style, scales="free_y") +
-    labs(y = "ESS(x^2) per second") +
-    theme(axis.text.x = element_text(angle = 30, hjust = 1))
-}
-
-ess2_tail_plot <- function(df) {
-  df %>%
-    mutate(ess2pl = ess2 / leapfrog) %>%
-    ggplot() +
-    geom_point(aes(Parameters, ess2pl, shape=Branch, color=Branch), size = 3) +
-    facet_wrap(~style, scales="free_y") +
-    labs(y = "ESS(x^2) per leapfrog") +
-    theme(axis.text.x = element_text(angle = 30, hjust = 1))
-}
-
-rhat_plot <- function(df) {
-  df %>%
-    ggplot() +
-    geom_point(aes(Parameters, Rhat, shape = Branch, color = Branch), size = 3) +
-    geom_hline(yintercept = 1.01, linetype=2, alpha = 0.5) +
-    theme(axis.text.x = element_text(angle = 30, hjust = 1))
-}
-
-
-parameter_plot <- function(samples_dv, dvm, samples_pr, prm) {
-
-  dfdv_samples <- as.data.frame(samples_dv)
-  dfdv_samples$Branch <- "develop"
-  dfpr_samples <- as.data.frame(samples_pr)
-  dfpr_samples$Branch <- "proposal"
-
-  df <- bind_rows(dfdv_samples, dfpr_samples) %>%
-    select(-lp__) %>%
-    pivot_longer(cols=-Branch, names_to="parameter")
-
-  parameter_names <- rownames(dvm)
-  dvm$parameter <- parameter_names
-  prm$parameter <- parameter_names
-  dvm$Branch <- "develop"
-  prm$Branch <- "proposal"
-  stats <- c("2.5%", "25%", "50%", "75%", "97.5%", "Branch", "parameter")
-
-  dfQ <- bind_rows(dvm, prm) %>%
-    tibble %>%
-    select(all_of(stats)) %>%
-    filter(parameter != "lp__") %>%
-    pivot_longer(cols=-c(Branch, parameter), names_to="quantile")
-
-
-  ggplot() +
-    geom_density(data = df, aes(value, color=Branch)) +
-    geom_rug(data = dfQ, aes(value, color=Branch), size=2) +
-    facet_wrap(~parameter, scales="free", ncol=1)
-}
 ```
 
 I propose new dynamics for the Hamiltonian Monte Carlo (HMC) algorithm
@@ -214,25 +45,27 @@ develop's version of HMC could be written as a Hamiltonian
 
 $$ H_{dv}(q, p) = U(q) + \frac{1}{2} p^T M^{-1} p $$
 
-where the subscript $dv$ stands for develop, $M^{-1} \approx
+where the subscript $dv$ stands for develop and $M^{-1} \approx
 \mathbb{E}_{\pi} (q - \mu)(q - \mu)^T$.  Under this scheme, $p \sim
 N(0, M)$.
 
+
 The work of @Ma:2015 in [A Complete Recipe for Stochastic Gradient
 MCMC](https://arxiv.org/abs/1506.04696) suggests a richer framework
-than shown below.  They also offer a stochastic version of this, but
-I'm ignoring all of that.  In an effort to simplify Ma's notation,
-I've removed some terms from the equations below that will drop out
-eventually anyway of what I'm proposing.
+than presented below.  They also offer a stochastic version of their
+framework, but the stochastics is of no interest here.  In an effort
+to simplify Ma's notation, some of their terms, that will drop out
+from this proposal eventually anyway, have been removed.
 
 Let $z = (q, p)$.  Ma et al.'s framework dictates dynamics as
 
-$$\mathrm{d}z =  -Q(z) \nabla H(z)$$
+$$\mathrm{d}z = -Q(z) \nabla H(z)$$
 
-where $Q$ is any skew symmetric matrix.  Some choices of $Q$ will lead
-to faster convergence than others.
+where $Q$ is any skew symmetric matrix. Some choices of $Q$ will lead
+to faster convergence than others.  This proposal maintains $M^{-1}$
+as a pre-conditioner, but incorporates it in a new way.
 
-Branch develop's version of HMC, in the notation of this framework,
+Branch develop's version of HMC, in the notation of Ma's framework,
 goes like this.  Draw $p \sim N(0, M)$, necessitating a
 decomposition $LL^{T} = M^{-1}$ and a solve().  This was chosen by
 design because $M^{-1}$ itself is needed in the next step, and it's
@@ -245,66 +78,118 @@ update $z$ according to the dynamcis
 
 $$ \mathrm{d}z = -Q(z) \nabla U(q) = \begin{bmatrix} 0 && -I \\ I && 0 \end{bmatrix} \begin{bmatrix} \nabla U(q) \\ M^{-1}p \end{bmatrix} = \begin{bmatrix} M^{-1}p \\ -\nabla U(q) \end{bmatrix}.$$
 
-Stan appproximates these dynamics using the half-step [leapfrog
-integrator](https://en.wikipedia.org/wiki/Leapfrog_integration) and
-this strategy will apply throughout this discussion.
+Stan appproximates the dynamics of this Hamiltonian system in time $t$
+using the [leapfrog
+integrator](https://en.wikipedia.org/wiki/Leapfrog_integration), which
+moves in steps of size $\epsilon$.
 
-The proposed version of HMC draws $p_t \sim N(0, I)$, thus specifying
-a slightly modified Hamiltonian,
+\begin{align}
+    p_{t + \epsilon / 2} & = p_{t} - \frac{\epsilon}{2}\nabla U(q_{t}) \\
+    q_{t + \epsilon} & = q_{t} + \epsilon M^{-1}p_{t + \epsilon / 2} \\
+    p_{t + \epsilon} & = p_{t + \epsilon / 2} - \frac{\epsilon}{2} \nabla U(q_{t + \epsilon})
+\end{align}
 
-$ $H_{pr}(z) = U(q) + \frac{1}{2}p^Tp.$$
+Combining the first two steps into one and writing $LL^T = M^{-1}$, we see that $q$ is updated as
+
+$$q_{t + \epsilon} = q_{t} + \epsilon LL^T p_{t} - \frac{\epsilon^2}{2} LL^T \nabla U(q_{t}) $$
+
+where $p \sim N(0, (LL^T)^{-1})$ implies that $LL^Tp \sim N(0, LL^T)$.
+
+Now consider the proposed version of HMC, where $p \sim N(0, I)$
+gives a slightly different Hamiltonian,
+
+$$H_{pr}(z) = U(q) + \frac{1}{2}p^Tp.$$
 
 Take
 
 $$ Q(z) = \begin{bmatrix} 0 && -L^T \\ L && 0 \end{bmatrix} $$
 
 where $LL^T = M^{-1}$.  Since $M^{-1}$ is only updated at the end of
-each [adaption window](https://mc-stan.org/docs/2_23/reference-manual/hmc-algorithm-parameters.html#adaptation.figure), $L$ is fixed throughout sampling.  There is no
-need for $M^{-1}$ itself. The proposed dynamics then follow
+each [adaption
+window](https://mc-stan.org/docs/2_23/reference-manual/hmc-algorithm-parameters.html#adaptation.figure),
+$L$ is fixed throughout sampling.  There is no need for $M^{-1}$
+itself, not even to generate new momenta $p$. Hence there is no solve()
+under this proposed scheme.  The rest of this write up ensures that
+the other pieces of the Hamiltonian Monte Carlo algorithm are updated
+apppropriately to the modified Hamiltonian just presented.
+
+The proposed dynamics then follow
 
 $$ \mathrm{d}z = \begin{bmatrix} L^{T}p \\ -L \nabla U(q) \end{bmatrix}.$$
 
-XXX Consider the one step update to see the similarity between the two models.
+Using the same leapfrog integrator, the one step update of $q$ is
 
-$$ q(t + \epsilon) = q(t) + LL^T... $$
+$$ q_{t + \epsilon} = q_{t} + \epsilon L p_{t} - \frac{\epsilon^2}{2}LL^T \nabla U(q_{t}). $$
 
-Then note how similar these methods are in terms of $p$ as a random
-variable.  In develop, we have $p \sim N(0, M)$ and hence in the from
-the one step we have $M^{-1}p$.  In terms of $LL^T = M^{-1}$, the
-distribution of $M^{-1}p \sim N(0, LL^T)$.  Similarly, for proposal
-$Lp \sim N(0, LL^T)$.
+Under this proposal, since $p \sim N(0, I)$, we have that $Lp \sim
+N(0, LL^T)$ just as in the one step update of $q$ under branch
+develop.
 
-The last (ha!) change necessary is to measure distance appropriately.
+The last necessary change is to measure distance appropriately under the Hamiltonian.
 In develop, and using the notation of @Betancourt:2017,
 
 $$ q_+(\mathfrak{t}) - q_-(\mathfrak{t}) = \int_{t = 0}^{t =
 T(\mathfrak{t})} \mathrm{d}t M^{-1} \cdot p(t). $$
 
-Since proposal generates $p \sim N(0, 1)$ instead of $p \sim N(0, M)$,
-replace $M^{-1}$ with $I$, the identity matrix of an appropriate size.
-This ensures distance is measured with respect to the appropriate
-metric.
+Under the proposal, replace $M^{-1}$ with $I$, since $p \sim N(0, I)$
+instead of $p \sim N(0, M)$.  This ensures distance is measured with
+respect to the appropriate metric.
 
-Overall, the proposed dynamics should be faster.  There are fewer
-decompositions and there is no matrix inverse via a call to solve().
-While $L \cdot \nabla U(q)$ is calculated twice within the leapfrog
-integrator, once for each half-step, the matrix vector multiplication
-should be more efficient in Eigen since $L$ is diagonal^[Thanks to
-Matija Rezar and Ben Bales for pointing this out.].  Moreover, by
-measuring distance with respect to an identity metric instead of with
-respect to $M^{-1}$, the calculation $M^{-1}p$, which happens number
-of leapfrog updates + 1 for every transition, is completely dropped.
+XXX but do they take the same number of leapfrog steps, or does the
+metric $M^{-1}$ somehow measure distance better with respect to the
+target $\pi$?  If this isn't true, then we need to completely rethink
+the following paragraph.
+
+Overall, the proposed dynamics should be faster and more memory
+efficient to sample from $\pi$.  However, any noticeable difference
+depends on the time spent integrating, and evaluating $U$ and $\nabla
+U$.
+
+Under the proposed scheme, there is no decomposition nor solve(),
+which otherwise occur once for each transition at a cost of $d^3 / 3$
+and $d^2$ operations respectively.  With no solve(), the proposal
+should also consume less memory.
+
+While $L \nabla U(q)$ is calculated twice within the leapfrog
+integrator, once for each half-step, this matrix-vector multiplication
+can be made more efficient in
+[Eigen](http://eigen.tuxfamily.org/index.php?title=Main_Page) since
+$L$ is lower triangular^[Thanks to Matija Rezar and Ben Bales for
+pointing this out.].  Since both proposal and develop must evaluate
+the gradient of $U$ at $q$, let's write $\nabla U$ to emphasize that
+we can ignore this evaluation cost in a direct comparison of necessary
+operations.  Beyond the evaluation of $\nabla U$, the difference in
+computational cost for each leapfrog integration between proposal and
+develop comes down to a comparison between the cost of evaluating $L
+\nabla U$ twice and $M^{-1}p$ once.  For proposal, because $L$ is
+lower triangular, there are $d(d+1) / 2 + (d-1)d / 2$ operations for
+each $L \nabla U$ calculation, for a total of $2d^2$ operations.  For
+develop, since $M^{-1}$ is dense, this is a dense matrix with $d^2$
+elements multiplied by a vector $p$ of lenth $d$, for a computational
+cost of $2d^2 - d$. Essentially, calculating $L \nabla U$ twice
+entails traversing the diagonal of a $d \times d$ matrix one extra
+time for each leapfrog iteration.
+
+Next, consider the metric under which distance is measured within the
+two branches.  By measuring distance with respect to an identity
+metric instead of with respect to $M^{-1}$, the calculation $M^{-1}p$,
+which happens number of leapfrog + 1 for every transition $i = 1:I$,
+is replaced with $p^Tp$.  Assuming $K$ leapfrog steps happen on
+average, then proposal saves $I * (K + 1) * (2d^2 - 3d + 1)$
+operations.
+
+
 
 
 # Numerical Study {.tabset}
 
 Below is a comparison of the two version of HMC dynamics presented
-above, for both XXX change this metrics dense\_e and diag\_e across a range of models.
-All models were fit with CmdStan v2.22.1 on a MacBook Pro running
-macOS 10.14.6, which has a 2GHz Intel Core i5 processor and 16GB 1867
-MHz LPDDR3 memory.  Each model was fit with 2000 warmup iterations,
-10000 iterations beyond warmup, and 4 chains.  All other Stan defaults
-were left alone.
+above, for both XXX change this metrics dense\_e and diag\_e across a
+range of models.  All models were fit with CmdStan v2.22.1 on a
+MacBook Pro running macOS 10.14.6, which has a 2GHz Intel Core i5
+processor and 16GB 1867 MHz LPDDR3 memory.  Each model was fit with
+2000 warmup iterations, 10000 iterations beyond warmup, and 4 chains.
+All other Stan defaults were left alone.
 
 XXX Repeat purpose of study and state where proposed code can be found.
 
@@ -330,220 +215,4 @@ XXX time measured as the total time to fit 4 chains as if run sequentially
 
 
 
-
-## gauss_c25
-
-```{r, include=FALSE, cache=TRUE}
-agc25_times <- c(116, 51)
-agc25_samples <- read_samples("anisotropic_gauss_c25_100d", "dense")
-agc25 <- calculate_summary_dfs(agc25_samples$dv, agc25_samples$pr, agc25_times, "dense_e")
-
-```
-
-### Runtime
-
-The model agc25 has `r agc25$num_parameters` parameters.  The table below displays the run time of this model in seconds.
-
-```{r, echo=FALSE}
-
-dft <- data.frame(metric = c("develop", "proposal"),
-                  seconds = agc25_times)
-kable(dft, col.names = c("Branch", "seconds")) %>%
-    kable_styling(bootstrap_options = c("striped", "hover"), fixed_thead = TRUE, full_width = FALSE)
-
-```
-
-
-
-### ESS
-
-```{r, echo=FALSE, fig.width = 12}
-
-ess_bulk_plot(agc25$df_ess)
-ess_tail_plot(agc25$df_ess)
-
-```
-
-```{r, echo=FALSE, fig.width = 12}
-
-ess2_bulk_plot(agc25$df_ess)
-ess2_tail_plot(agc25$df_ess)
-
-```
-
-### Rhat
-
-```{r, echo=FALSE}
-
-rhat_plot(agc25$df_rhat)
-
-```
-
-### Summary Statistics
-
-Estimated parameters.
-
-```{r, echo=FALSE, fig.height=200, fig.width = 8, cache=TRUE}
-
-parameter_plot(agc25_samples$dv, agc25$dvm, agc25_samples$pr, agc25$prm)
-
-```
-
-Parameter Monte Carlo standard errors.
-
-```{r, echo=FALSE}
-
-agc25$df_mcse[order(agc25$df_mcse$index), ] %>%
-    select(metric, everything()) %>%
-    select(-parameters, -index) %>%
-    kable(digits = 3) %>%
-    pack_rows(index = table(agc25$df_mcse$parameters)) %>%
-    kable_styling(bootstrap_options = c("striped", "hover"), fixed_thead = TRUE)
-
-```
-
-
-## Model: arK
-
-```{r, include=FALSE, cache=TRUE}
-
-arK_samples <- read_samples("ark", "dense")
-arK <- calculate_summary_dfs(arK_samples$dv, arK_samples$pr, c(11, 87), "dense_e")
-
-```
-
-### Runtime
-
-The model arK has `r arK$num_parameters` parameters.  The table below displays the run time of this model in seconds.
-
-```{r, echo=FALSE}
-
-times <- c(6, 11)
-dft <- data.frame(metric = c("develop", "proposal"),
-                  seconds = times)
-kable(dft, col.names = c("Branch", "seconds")) %>%
-    kable_styling(bootstrap_options = c("striped", "hover"), fixed_thead = TRUE, full_width = FALSE)
-
-```
-
-
-
-### ESS
-
-```{r, echo=FALSE, fig.width = 10}
-
-ess_bulk_plot(arK$df_ess)
-ess_tail_plot(arK$df_ess)
-
-```
-
-```{r, echo=FALSE, fig.width = 10}
-
-ess2_bulk_plot(arK$df_ess)
-ess2_tail_plot(arK$df_ess)
-
-```
-
-### Rhat
-
-```{r, echo=FALSE}
-
-rhat_plot(arK$df_rhat)
-
-```
-
-### Summary Statistics
-
-Estimated parameters.
-
-```{r, echo=FALSE, fig.height=16, fig.width = 8}
-
-parameter_plot(arK_samples$dv, arK$dvm, arK_samples$pr, arK$prm)
-
-```
-
-Parameter Monte Carlo standard errors.
-
-```{r, echo=FALSE}
-
-arK$df_mcse[order(arK$df_mcse$index), ] %>%
-    select(metric, everything()) %>%
-    select(-parameters, -index) %>%
-    kable(digits = 3) %>%
-    pack_rows(index = table(arK$df_mcse$parameters)) %>%
-    kable_styling(bootstrap_options = c("striped", "hover"), fixed_thead = TRUE)
-
-```
-
-## Model: arma
-
-```{r, include=FALSE, cache=TRUE}
-arma_times <- c(3, 3)
-arma_samples <- read_samples("arma", "dense")
-arma <- calculate_summary_dfs(arma_samples$dv, arma_samples$pr, arma_times, "dense_e")
-
-```
-
-### Runtime
-
-The model arma has `r arma$num_parameters` parameters.  The table below displays the run time of this model in seconds.
-
-```{r, echo=FALSE}
-
-dft <- data.frame(metric = c("develop", "proposal"),
-                  seconds = arma_times)
-kable(dft, col.names = c("Branch", "seconds")) %>%
-    kable_styling(bootstrap_options = c("striped", "hover"), fixed_thead = TRUE, full_width = FALSE)
-
-```
-
-
-
-### ESS
-
-```{r, echo=FALSE, fig.width = 10}
-
-ess_bulk_plot(arma$df_ess)
-ess_tail_plot(arma$df_ess)
-
-```
-
-```{r, echo=FALSE, fig.width = 10}
-
-ess2_bulk_plot(arma$df_ess)
-ess2_tail_plot(arma$df_ess)
-
-```
-
-### Rhat
-
-```{r, echo=FALSE}
-
-rhat_plot(arma$df_rhat)
-
-```
-
-### Summary Statistics
-
-Estimated parameters.
-
-```{r, echo=FALSE, fig.height=16, fig.width = 8}
-
-parameter_plot(arma_samples$dv, arma$dvm, arma_samples$pr, arma$prm)
-
-```
-
-Parameter Monte Carlo standard errors.
-
-```{r, echo=FALSE}
-
-arma$df_mcse[order(arma$df_mcse$index), ] %>%
-    select(metric, everything()) %>%
-    select(-parameters, -index) %>%
-    kable(digits = 3) %>%
-    pack_rows(index = table(arma$df_mcse$parameters)) %>%
-    kable_styling(bootstrap_options = c("striped", "hover"), fixed_thead = TRUE)
-
-```
-
-# References {.tabset}
+# References
