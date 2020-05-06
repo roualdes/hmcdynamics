@@ -1,9 +1,11 @@
 source("utilities.R")
 set_cmdstan_path("~/cmdstan")
 theme_set(theme_minimal())
-
-branch <- "develop"
 replications <- 10
+
+## simulation
+branch <- "develop"
+
 metric <- "dense_e"
 
 ## dim <- 8; rho <- 0; nu <- 3; rep <- 10; model <- "gaussian"
@@ -27,33 +29,56 @@ for (model in c("gaussian", "student_t")) {
 }
 
 
-## TODO old, need to look over everything below
-model <- "gauss_c25_32d"
-outp <- read_model_output(model, "proposal")
-outd <- read_model_output(model, "develop")
+## analysis
 
+rhos <- seq(0, .75, by = 0.25)
+model <- "gaussian"
 
-p1 <- plot_time(outd$time, outp$time)
-p2 <- plot_rhat(outd$rhat, outp$rhat)
-p3 <- plot_ess(outd$essbulk_time, outp$essbulk_time) + labs(y = "ESS_Bulk(x)")
-p4 <- plot_ess(outd$esstail_time, outp$esstail_time) + labs(y = "ESS_Tail(x)")
-p5 <- plot_ess(outd$ess2bulk_time, outp$ess2bulk_time) + labs(y = "ESS_Bulk(x^2)")
-p6 <- plot_ess(outd$ess2tail_time, outp$ess2tail_time) + labs(y = "ESS_Tail(x^2)")
-grid.arrange(p1, p2, p3, p4, p5, p6, ncol=2)
+branches <- c("proposal", "develop")
+dims <- 2^(1:8)
 
-bind_rows(outd$ess2tail_time, outp$ess2tail_time) %>%
-    filter(id != "lp__") %>%
-    group_by(branch) %>%
-    summarise(m = mean(value))
+df_ess <- expand.grid(branch = branches, dim = dims, rep = 1:replications)
+df_ess$ess_bulk_sec <- NA
+df_ess$ess_tail_sec <- NA
+df_ess$ess2_bulk_sec <- NA
+df_ess$ess2_tail_sec <- NA
+df_ess$time <- NA
 
-bind_rows(outd$esstail, outp$esstail) %>%
-    filter(id != "lp__") %>%
-    group_by(branch) %>%
-    summarise(m = mean(value))
+rho <- 0.75
+for (b in branches) {
+    for (d in dims) {
+        for (r in 1:replications) {
+            dfs <- read_csv(genpath(model, b, d, rho, r, "summary"))
+            dft <- read_csv(genpath(model, b, d, rho, r, "time"))
+            ess2 <- as.matrix(read_csv(genpath(model, b, d, rho, r, "draws")))^2 %>%
+                array(dim=c(1000, 4, 10)) %>%
+                summarise_draws
 
+            idx <- with(df_ess,
+                        which(branch == b & dim == d & rep == r))
 
-p1 <- plot_ess(outd$essbulk_leapfrog, outp$essbulk_leapfrog) + labs(y = "ESS_Bulk(x)")
-p2 <- plot_ess(outd$esstail_leapfrog, outp$esstail_leapfrog) + labs(y = "ESS_Tail(x)")
-p3 <- plot_ess(outd$ess2bulk_leapfrog, outp$ess2bulk_leapfrog) + labs(y = "ESS_Bulk(x^2)")
-p4 <- plot_ess(outd$ess2tail_leapfrog, outp$ess2tail_leapfrog) + labs(y = "ESS_Tail(x^2)")
-grid.arrange(p1, p2, p3, p4, ncol=2)
+            time <- sum(dft$total)
+            df_ess$ess_bulk_sec[idx] <- min(dfs$ess_bulk / time)
+            df_ess$ess_tail_sec[idx] <- min(dfs$ess_tail / time)
+            df_ess$ess2_bulk_sec[idx] <- min(ess2$ess_bulk / time)
+            df_ess$ess2_tail_sec[idx] <- min(ess2$ess_tail / time)
+            df_ess$time[idx] <- time
+        }
+    }
+}
+
+df_ess %>%
+    group_by(dim, branch) %>%
+    summarise(essb = mean(ess_bulk_sec),
+              esst = mean(ess_tail_sec),
+              time = mean(time))
+
+df_ess %>%
+    ggplot(aes(factor(dim), log10(ess2_bulk_sec), color=branch)) +
+    geom_point(position = position_jitterdodge()) +
+    stat_summary(fun.data = "median_hilow", position = position_jitterdodge())
+
+df_ess %>%
+    ggplot(aes(time, color=branch)) +
+    geom_density() +
+    facet_wrap(~dim, scales="free")
