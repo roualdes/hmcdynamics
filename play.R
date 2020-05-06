@@ -19,7 +19,7 @@ controls <- list(ark = cntrl,
                  eight_schools = modifyList(cntrl, list(adapt_delta = 0.95)),
                  garch = cntrl)
 
-model <- "gauss_256d"
+model <- "student_t"
 metric <-  "dense_e"
 
 ## proposal, don't forget to switch branches.  Just double check.
@@ -59,30 +59,32 @@ for (m in models) {
 
 
 ###
+model <- "gauss_c50_64d"
+metric <- "dense_e"
 force_recompile("~/hmcdynamics", model)
 mod <- cmdstan_model(glue("{model}/{model}.stan"))
 
 fitd <- mod$sample(data = glue("{model}/{model}.json"),
                   num_warmup = cntrl$num_warmup, num_samples = cntrl$num_samples,
                   num_chains = cntrl$num_chains * 1,
-                  num_cores = cntrl$num_cores,
+                  num_cores = 2,
                   metric = metric, refresh = cntrl$refresh,
                   adapt_delta = cntrl$adapt_delta, max_depth = cntrl$max_depth)
 
 (smryd <- fitd$summary())
-fitd$save_output_files("gauss_128d", basename = "develop")
+
 
 
 force_recompile("~/hmcdynamics", model)
 mod <- cmdstan_model(glue("{model}/{model}.stan"))
 
 fitp <- mod$sample(data = glue("{model}/{model}.json"),
-                  num_warmup = cntrl$num_warmup, num_samples = cntrl$num_samples,
+                  num_warmup = cntrl$num_warmup, num_samples = 4000,
                   num_chains = cntrl$num_chains * 1,
                   num_cores = cntrl$num_cores,
                   metric = metric, refresh = cntrl$refresh,
-                  adapt_delta = cntrl$adapt_delta, max_depth = cntrl$max_depth)
+                  adapt_delta = 0.9, max_depth = cntrl$max_depth)
+
+samples <- tibble(data.frame(array(fitp$draws(), dim=c(100000*4, 6), dimnames = list(NULL, fitp$sampling_info()$model_params))))
 
 (smryp <- fitp$summary())
-
-fitp$save_output_files("gauss_128d")
