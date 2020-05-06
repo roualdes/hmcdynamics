@@ -2,7 +2,6 @@ source("utilities.R")
 set_cmdstan_path("~/cmdstan")
 theme_set(theme_minimal())
 
-
 branch <- "develop"
 replications <- 10
 metric <- "dense_e"
