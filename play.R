@@ -2,36 +2,32 @@ source("utilities.R")
 set_cmdstan_path("~/cmdstan")
 theme_set(theme_minimal())
 
-
-controls <- list(gauss_128d = cntrl, gauss_256d = cntrl, gauss_32d = cntrl, gauss_64d = cntrl,
-                 gauss_c25_128d = cntrl, gauss_c25_256d = cntrl, gauss_c25_32d = cntrl, gauss_c25_64d = cntrl,
-                 gauss_c50_128d = cntrl, gauss_c50_256d = cntrl, gauss_c50_32d = cntrl, gauss_c50_64d = cntrl,
-                 gauss_c75_128d = cntrl, gauss_c75_256d = cntrl, gauss_c75_32d = cntrl, gauss_c75_64d = cntrl
-)
-
-model <- "student_t"
-metric <-  "dense_e"
+branch <- "develop"
 replications <- 10
-# force_recompile("~/hmcdynamics", model)
-mod <- cmdstan_model(glue("{model}.stan"))
+metric <- "dense_e"
 
+## dim <- 8; rho <- 0; nu <- 3; rep <- 10; model <- "gaussian"
 
 for (model in c("gaussian", "student_t")) {
+    force_recompile("~/hmcdynamics", model)
+    mod <- cmdstan_model(glue("{model}.stan"))
+
     for (dim in 2^(1:8)) {
         for (rho in seq(0, .75, by = 0.25)) {
-            for (nu in seq(3, 12, by = 3)) {
-                for (rep in 1:10) {
-                    fit <- mod$sample(data = gendata(2^3, 0, 100), num_cores = 4,
-                                      metric = metric, refresh = 2000)
-                    write_output(fit, model, "proposal", dim, rho, nu, rep)
-                }
+            for (rep in 1:replications) {
+                seed <- use_seed(model, branch, dim, rho, rep)
+
+                fit <- mod$sample(data = gendata(dim, rho), num_cores = 4,
+                                  seed = seed, metric = metric, refresh = 2000)
+
+                write_output(fit, model, branch, dim, rho, rep)
             }
         }
     }
 }
 
 
-
+## TODO old, need to look over everything below
 model <- "gauss_c25_32d"
 outp <- read_model_output(model, "proposal")
 outd <- read_model_output(model, "develop")

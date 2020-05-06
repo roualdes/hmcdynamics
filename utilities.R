@@ -9,13 +9,14 @@ library(jsonlite)
 library(cmdstanr)
 library(posterior)
 library(readr)
+library(stringr)
 
-gendata <- function(dim, rho, nu) {
+gendata <- function(dim, rho) {
     m <- matrix(c(1, rho, rho, 1), nrow = 2)
     l <- lapply(1:(dim / 2), function(x) m)
     M <- as.matrix(bdiag(l))
 
-    list(d = dim, S = M, nu = nu)
+    list(d = dim, S = M, nu = 3)
 }
 
 
@@ -25,23 +26,52 @@ force_recompile <- function(basepath, model_names = models) {
     invisible(NULL)
 }
 
-write_output <- function(fit, model, branch, dim, rho, nu, rep) {
+genpath <- function(model, branch, dim, rho, rep, thing = NULL) {
+    dim <- stringr::str_pad(dim, width=3, pad=0)
+    rho <- stringr::str_pad(rho * 100, width=2, pad=0)
+    rep <- stringr::str_pad(rep, width=2, pad=0)
 
+    path <- glue("output/{model}_{branch}_")
+    if (!is.null(thing)) {
+        path <- glue(path, "{thing}_")
+    }
+    glue(path, "{rep}rep_{dim}d_{rho}c.csv.gz")
+}
+
+use_seed <- function(model, branch, dim, rho, rep) {
+    seed <- NULL
+
+    branches <- c("proposal", "develop")
+    b <- setdiff(branches, branch)
+
+    path <- genpath(model, b, dim, rho, rep, "seed")
+    exists <- file.exists(path)
+    if (exists) {
+        seed <- read_csv(path)$seed
+    }
+
+    seed
+}
+
+write_output <- function(fit, model, branch, dim, rho, rep) {
     fit$sampler_diagnostics() %>%
         as.data.frame %>%
-        write_csv(glue("output/{model}_{branch}_diagnostics_{rep}rep_{dim}d_{rho}c_{nu}nu.csv.gz"))
+        write_csv(genpath(model, branch, dim, rho, rep, "diagnostics"))
 
     fit$draws() %>%
         as.data.frame %>%
-        write_csv(glue("output/{model}_{branch}_draws_{rep}rep_{dim}d_{rho}c_{nu}nu.csv.gz"))
+        write_csv(genpath(model, branch, dim, rho, rep, "draws"))
 
     fit$time()$chains %>%
                  as.data.frame %>%
-                 write_csv(glue("output/{model}_{branch}_time_{rep}rep_{dim}d_{rho}c_{nu}nu.csv.gz"))
+                 write_csv(genpath(model, branch, dim, rho, rep, "time"))
 
     fit$summary() %>%
         as.data.frame %>%
-        write_csv(glue("output/{model}_{branch}_summary_{rep}rep_{dim}d_{rho}c_{nu}nu.csv.gz"))
+        write_csv(genpath(model, branch, dim, rho, rep, "summary"))
+
+    data.frame(seed = fit$sampling_info()$seed) %>%
+        write_csv(genpath(model, branch, dim, rho, rep, "seed"))
 
     invisible(NULL)
 }
