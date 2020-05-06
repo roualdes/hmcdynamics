@@ -1,41 +1,54 @@
- models <- c("gauss_32d", "gauss_c25_32d", "gauss_c25_64d", "gauss_c25_128d",
-             "gauss_c50_32d", "gauss_c50_64d", "gauss_c50_128d",
-             "gauss_c75_32d", "gauss_c75_64d", "gauss_c75_128d",
-             "cauchy", "arK", "eight_schools", "garch", "gp_pois_regr",
-             "gp_regr", "irt_2pl", "low_dim_gauss_mix", "low_dim_gauss_mix_collapse",
-             "pkpd", "sir")
+library(jsonlite)
+library(Matrix)
+library(glue)
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+library(tidyr)
+library(jsonlite)
+library(cmdstanr)
+library(posterior)
+library(readr)
 
-cntrl <- list(num_warmup = 2000, num_samples = 4000, num_chains = 4, replicates = 20,
-                num_cores = 10, refresh = 2000, adapt_delta = 0.8, max_depth = 10)
+gendata <- function(dim, rho, nu) {
+    m <- matrix(c(1, rho, rho, 1), nrow = 2)
+    l <- lapply(1:(dim / 2), function(x) m)
+    M <- as.matrix(bdiag(l))
 
-fit_model <- function(model, metric, branch, control = cntrl) {
-    mod <- cmdstan_model(glue("{model}/{model}.stan"))
-
-    fit <- mod$sample(data = glue("{model}/{model}.json"),
-                      num_warmup = control$num_warmup, num_samples = control$num_samples,
-                      num_chains = control$num_chains * control$replicates,
-                      num_cores = control$num_cores,
-                      metric = metric, refresh = control$refresh,
-                      adapt_delta = control$adapt_delta, max_depth = control$max_depth)
-
-    summary_diagnostics(fit, control$num_chains, control$replicates, branch)
+    list(d = dim, S = M, nu = nu)
 }
 
+
 force_recompile <- function(basepath, model_names = models) {
-    paths <- sapply(model_names, function(m) glue("{basepath}/{m}/{m}"))
+    paths <- sapply(model_names, function(m) glue("{basepath}/{m}"))
     file.remove(paths)
     invisible(NULL)
 }
 
-combine <- function(x, ...) {
-    others <- list(...)
-    for (nm in names(x)) {
-        for (o in others) {
-            x[[nm]] <- cbind(x[[nm]], o[[nm]])
-        }
-    }
-    x
+write_output <- function(fit, model, branch, dim, rho, nu, rep) {
+
+    fit$sampler_diagnostics() %>%
+        as.data.frame %>%
+        write_csv(glue("output/{model}_{branch}_diagnostics_{rep}rep_{dim}d_{rho}c_{nu}nu.csv.gz"))
+
+    fit$draws() %>%
+        as.data.frame %>%
+        write_csv(glue("output/{model}_{branch}_draws_{rep}rep_{dim}d_{rho}c_{nu}nu.csv.gz"))
+
+    fit$time()$chains %>%
+                 as.data.frame %>%
+                 write_csv(glue("output/{model}_{branch}_time_{rep}rep_{dim}d_{rho}c_{nu}nu.csv.gz"))
+
+    fit$summary() %>%
+        as.data.frame %>%
+        write_csv(glue("output/{model}_{branch}_summary_{rep}rep_{dim}d_{rho}c_{nu}nu.csv.gz"))
+
+    invisible(NULL)
 }
+
+
+
+## TODO look at everything below again, probably don't need much
 
 identify_df <- function(df, rownames, branch) {
     df %>%
@@ -49,6 +62,8 @@ standardize_by <- function(ess, leapfrog_run) {
 }
 
 summary_diagnostics <- function(fit, nchains, replicates, branch) {
+    diagnostics <- fit$sampler_diagnostics()
+
     draws <- fit$draws()
     parameter_names <- fit$sampling_info()$model_params
     idx <- 1:nchains
@@ -67,7 +82,33 @@ summary_diagnostics <- function(fit, nchains, replicates, branch) {
     time <- fit$time()$chains$total
     time_run <- sapply(0:(replicates - 1), function(i) sum(time[i*nchains + idx]))
 
-    list(essbulk_leapfrog = d$essbulk %>%
+    list(
+        diagnostics = diagnostics %>%
+            array(dim = c(prod(dim(diagnostics)[1:2]), dim(diagnostics)[3]),
+                  dimnames = list(NULL, fit$sampling_info()$sampler_diagnostics)) %>%
+            data.frame %>%
+            tibble,
+
+        draws = draws %>%
+             array(dim = c(prod(dim(draws)[1:2]), length(parameter_names)),
+                   dimnames = list(NULL, parameter_names)) %>%
+             data.frame %>%
+             tibble,
+
+         essbulk = d$essbulk %>%
+             data.frame %>%
+             identify_df(parameter_names, branch),
+         esstail = d$esstail %>%
+             data.frame %>%
+             identify_df(parameter_names, branch),
+         ess2bulk = d$ess2bulk %>%
+             data.frame %>%
+             identify_df(parameter_names, branch),
+         ess2tail = d$ess2tail %>%
+             data.frame %>%
+             identify_df(parameter_names, branch),
+
+         essbulk_leapfrog = d$essbulk %>%
              standardize_by(leapfrog_run) %>%
              identify_df(parameter_names, branch),
          esstail_leapfrog = d$esstail %>%
@@ -97,16 +138,30 @@ summary_diagnostics <- function(fit, nchains, replicates, branch) {
          time = identify_df(fit$time()$chains[,"total",drop=FALSE],
                             fit$time()$chains$chain_id,
                             branch),
-         leapfrog = identify_df(data.frame(leapfrog), fit$time()$chains$chain_id, branch))
+         leapfrog = identify_df(data.frame(leapfrog), fit$time()$chains$chain_id, branch),
+         seed = tibble(seed = fit$sampling_info()$seed))
 }
 
-plot_ess <- function(df1, df2) {
-    bind_rows(df1, df2) %>%
+plot_ess <- function(df1, df2, add_overallmeans = FALSE) {
+
+    df <- bind_rows(df1, df2)
+
+    p <- df %>%
         ggplot(aes(id, value, color=branch, shape=branch)) +
-        geom_point(position = position_jitterdodge(jitter.width = 0.2)) +
-        stat_summary(fun = "mean", color="black", position = position_dodge(width=0.4)) +
+        geom_point(position = position_jitterdodge(jitter.width = 0.2), alpha = 0.25) +
+        stat_summary(fun = "mean", color="black", position = position_dodge(width=0.4), alpha = 0.5) +
         labs(x = "parameter") +
         theme(axis.text.x = element_text(angle = 30, hjust = 1))
+
+    if (add_overallmeans) {
+        means <- df %>%
+            filter(id != "lp__") %>%
+            group_by(branch) %>%
+            summarise(m = mean(value))
+        p <- p + geom_hline(data=means, aes(yintercept = m, linetype = branch))
+    }
+
+    p
 }
 
 plot_time <- function(df1, df2) {
@@ -134,8 +189,9 @@ write_model_output <- function(output, model, branch) {
 
 read_model_output <- function(model, branch) {
     files <- c("essbulk_leapfrog", "esstail_leapfrog", "ess2bulk_leapfrog", "ess2tail_leapfrog",
-              "essbulk_time", "esstail_time", "ess2bulk_time", "ess2tail_time",
-              "rhat", "time")
+               "essbulk_time", "esstail_time", "ess2bulk_time", "ess2tail_time",
+               "essbulk", "esstail", "ess2bulk", "ess2tail",
+               "rhat", "time")
     out <- vector("list", length(files))
     names(out) <- files
     for (f in files) {

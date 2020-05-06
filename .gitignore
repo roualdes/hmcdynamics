@@ -1,4 +1,5 @@
 # History files
+.DS_Store
 .Rhistory
 .Rapp.history
 
@@ -38,6 +39,6 @@ vignettes/*.pdf
 # R Environment Variables
 .Renviron
 
-results.h5
-report_cache/
-report_files/
+gaussian
+student_t
+*.csv.gz
