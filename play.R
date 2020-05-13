@@ -32,7 +32,7 @@ for (model in c("gaussian", "student_t")) {
 ## analysis
 
 rhos <- seq(0, .75, by = 0.25)
-model <- "gaussian"
+model <- "student_t"
 
 branches <- c("proposal", "develop")
 dims <- 2^(1:8)
@@ -44,7 +44,7 @@ df_ess$ess2_bulk_sec <- NA
 df_ess$ess2_tail_sec <- NA
 df_ess$time <- NA
 
-rho <- 0.75
+rho <- 0.0
 for (b in branches) {
     for (d in dims) {
         for (r in 1:replications) {
