@@ -178,7 +178,13 @@ is replaced with $p^Tp$.  Assuming $K$ leapfrog steps happen on
 average, then proposal saves $I * (K + 1) * (2d^2 - 3d + 1)$
 operations.
 
+XXX When $U(q)$ and $\nabla U(q)$ are $O(n^3)$, most of these savings
+are moot.  Or to put it a better way, these savings will increasingly
+help when the calculation costs of $U(q)$ and $\nabla U(q)$ don't
+dominate run time.
 
+XXX Maybe try to find a model where $U(q)$ and $\nabla U(q)$ don't
+dominate run time, but is still high dimensional.
 
 
 # Numerical Study {.tabset}
@@ -211,7 +217,9 @@ branch.  Such updates proceeded until both algorithms were relatively
 stable.  Some stable runs included less than 1% divergences, ignoring
 these as false positives.
 
-XXX time measured as the total time to fit 4 chains as if run sequentially
+XXX time measured as the sum time to fit 4 chains, as if run sequentially
+
+XXX Find model: high dimensions, but cheap $U(q)$ and $\nabla U(q)$. 
 
 
 
