@@ -48,9 +48,9 @@ force_recompile <- function(basepath, model_names = models) {
 }
 
 genpath <- function(model, branch, dim, rho, rep, thing = NULL) {
-    dim <- stringr::str_pad(dim, width=3, pad=0)
-    rho <- stringr::str_pad(rho * 100, width=2, pad=0)
-    rep <- stringr::str_pad(rep, width=3, pad=0)
+    dim <- stringr::str_pad(dim, width = 3, pad = 0)
+    rho <- stringr::str_pad(rho * 100, width = 2, pad = 0)
+    rep <- stringr::str_pad(rep, width = 3, pad = 0)
 
     path <- glue("output/{model}_{branch}_")
     if (!is.null(thing)) {
@@ -61,9 +61,7 @@ genpath <- function(model, branch, dim, rho, rep, thing = NULL) {
 
 use_seed <- function(model, branch, dim, rho, rep) {
     seed <- NULL
-
-    branches <- c("proposal", "develop")
-    b <- setdiff(branches, branch)
+    b <- setdiff(c("proposal", "develop"), branch)
 
     path <- genpath(model, b, dim, rho, rep, "seed")
     exists <- file.exists(path)
@@ -181,9 +179,9 @@ prepare_df <- function(model, rho, branches, dims, reps) {
                 df$rhat[idx] <- max(dfs$rhat)
                 df$time[idx] <- time
                 df$seed[idx] <- seed
-                df$leapfrog <- leapfrog
-                df$stepsize <- stepsize
-                df$divergent <- divergent
+                df$leapfrog[idx] <- leapfrog
+                df$stepsize[idx] <- stepsize
+                df$divergent[idx] <- divergent
 
                 ## stats
                 df$q5[idx] <- dfs$q5[esstails_idx]
@@ -194,4 +192,117 @@ prepare_df <- function(model, rho, branches, dims, reps) {
         }
     }
     df
+}
+
+plot_ess_time <- function(df, model, rho) {
+    df %>%
+        select(branch, dim, ess_bulk_sec, ess_tail_sec, ess2_bulk_sec, ess2_tail_sec) %>%
+        pivot_longer(cols = c(ess_bulk_sec, ess_tail_sec, ess2_bulk_sec, ess2_tail_sec)) %>%
+        ggplot(aes(factor(dim), value, color = branch, shape = branch)) +
+        geom_point(position = position_jitterdodge(), alpha = 0.25) +
+        scale_y_log10() +
+        stat_summary(fun.data = "median_hilow", position = position_jitterdodge()) +
+        facet_wrap(~name, nrow=2, scales="free_y") +
+        labs(title = bquote("Model" ~ .(model) ~ "with rho =" ~ .(rho)))
+}
+
+table_ess_time <- function(df) {
+    df %>%
+        group_by(branch, dim) %>%
+        summarise(mean_ess_bulk = mean(ess_bulk_sec),
+                  mean_ess_tail = mean(ess_tail_sec),
+                  mean_ess2_bulk = mean(ess2_bulk_sec),
+                  mean_ess2_tail = mean(ess2_tail_sec)) %>%
+        arrange(dim)
+}
+
+
+plot_ess_leapfrog <- function(df, model, rho) {
+    df %>%
+        select(branch, dim, ess_bulk_leapfrog, ess2_bulk_leapfrog, ess_tail_leapfrog, ess2_tail_leapfrog) %>%
+        pivot_longer(cols = c(ess_bulk_leapfrog, ess2_bulk_leapfrog, ess_tail_leapfrog, ess2_tail_leapfrog)) %>%
+        ggplot(aes(factor(dim), value, color = branch, shape = branch)) +
+        geom_point(position = position_jitterdodge(), alpha = 0.25) +
+        stat_summary(fun.data = "median_hilow", position = position_jitterdodge()) +
+        facet_wrap(~name, nrow=2, scales="free_y") +
+        labs(title = bquote("Model" ~ .(model) ~ "with rho =" ~ .(rho)))
+}
+
+table_ess_leapfrog <- function(df) {
+    df %>%
+        group_by(branch, dim) %>%
+        summarise(mean_ess_bulk = mean(ess_bulk_leapfrog),
+                  mean_ess_tail = mean(ess_tail_leapfrog),
+                  mean_ess2_bulk = mean(ess2_bulk_leapfrog),
+                  mean_ess2_tail = mean(ess2_tail_leapfrog)) %>%
+        arrange(dim)
+}
+
+
+plot_stats <- function(df, model, rho) {
+    df %>%
+        select(branch, dim, q5, median, q95, sd) %>%
+        pivot_longer(cols = c(q5, median, q95, sd)) %>%
+        ggplot(aes(factor(dim), value, color=branch)) +
+        geom_point(position = position_jitterdodge(), alpha = 0.25) +
+        stat_summary(fun.data = "median_hilow", position = position_jitterdodge()) +
+        facet_wrap(~name, nrow=2, scale="free_y") +
+        labs(title = bquote("Model" ~ .(model) ~ "with rho =" ~ .(rho)))
+}
+
+
+plot_rhat <- function(df, model, rho) {
+    df %>%
+        ggplot(aes(factor(dim), rhat, color = branch, shape = branch)) +
+        geom_point(position = position_jitterdodge(), alpha = 0.25) +
+        stat_summary(fun.data = "median_hilow", position = position_jitterdodge()) +
+        geom_hline(yintercept = 1.01, linetype = 2) +
+        labs(x = "Dimension", y = "Rhat", title = bquote("Model" ~ .(model) ~ "with rho =" ~ .(rho)))
+}
+
+
+check_stepsize <- function(df) {
+    df %>%
+        group_by(branch, dim, rep) %>%
+        summarise(m_eps = mean(stepsize)) %>%
+        arrange(dim, rep)
+}
+
+
+check_leapfrog <- function(df) {
+    df %>%
+        group_by(branch, dim, rep) %>%
+        summarise(m_leapfrog = mean(leapfrog)) %>%
+        arrange(rep, dim)
+}
+
+
+check_runtime <- function(df) {
+    df %>%
+        group_by(branch, dim) %>%
+        summarise(m_time = mean(time)) %>%
+        arrange(dim)
+}
+
+plot_runtime <- function(df) {
+    df %>%
+        ggplot(aes(factor(dim), time, color=branch)) +
+        geom_point(position = position_jitterdodge(), alpha = 0.25) +
+        stat_summary(fun.data = "median_hilow", position = position_jitterdodge())
+}
+
+
+check_divergence <- function(df) {
+    df %>%
+        group_by(branch, dim) %>%
+        summarise(m_divergent = mean(divergent)) %>%
+        arrange(dim)
+}
+
+
+check_seed <- function(df) {
+    df %>%
+        group_by(branch, dim, rep) %>%
+        summarise(m_seed = mean(seed)) %>%
+        arrange(rep, dim)
 }
