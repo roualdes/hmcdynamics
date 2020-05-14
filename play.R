@@ -8,9 +8,10 @@ throwaway <- 5
 branch <- "develop"
 metric <- "dense_e"
 
-## dim <- 8; rho <- 0; nu <- 3; rep <- 10; model <- "gaussian"
+## dim <- 8; rho <- 0; nu <- 3; rep <- 10; model <- "german_credit"
 
 for (model in c("gaussian", "student_t")) {
+
     force_recompile("~/hmcdynamics", model)
     mod <- cmdstan_model(glue("{model}.stan"))
 
@@ -20,8 +21,8 @@ for (model in c("gaussian", "student_t")) {
                 ## TODO something wrong with this seeding idea.
                 seed <- use_seed(model, branch, dim, rho, rep)
 
-                fit <- mod$sample(data = gendata(dim, rho), num_cores = 4,
-                                  num_warmup = 5000, num_samples = 5000,
+                fit <- mod$sample(data = gendata(model, dim, rho), num_cores = 4,
+                                  num_warmup = 5000, num_samples = 5000, adapt_delta = 0.95,
                                   seed = seed, metric = metric, refresh = 5000)
 
                 ## discard first throwaway runs

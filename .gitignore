@@ -39,6 +39,10 @@ vignettes/*.pdf
 # R Environment Variables
 .Renviron
 
+# Models
 gaussian
 student_t
+german_credit
+
+# Output
 *.csv.gz

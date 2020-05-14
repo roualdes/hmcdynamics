@@ -12,12 +12,32 @@ library(readr)
 library(stringr)
 library(tidyr)
 
-gendata <- function(dim, rho) {
-    m <- matrix(c(1, rho, rho, 1), nrow = 2)
-    l <- lapply(1:(dim / 2), function(x) m)
-    M <- as.matrix(bdiag(l))
+gendata <- function(model, dim, rho) {
+    if (model %in% c("gaussian", "student_t")) {
+        m <- matrix(c(1, rho, rho, 1), nrow = 2)
+        l <- lapply(1:(dim / 2), function(x) m)
+        M <- as.matrix(bdiag(l))
 
-    list(d = dim, S = M, nu = 3)
+        return(list(d = dim, S = M, nu = 3))
+
+
+    } else if (model == "german_credit") {
+        df <- read_csv("german_credit.csv")
+
+        N <- nrow(df)
+        M <- ncol(df)
+
+        x <- as.matrix(df[,-M])
+
+        for (m in 1:(M - 1)) {
+            x[,m] <- 2 * (x[,m] / (diff(range(x[,m])))) - 1
+        }
+
+        return(list(y = df %>% pull(X25) - 1,
+                    x = cbind(1, x),
+                    n = N,
+                    d = M))
+    }
 }
 
 
