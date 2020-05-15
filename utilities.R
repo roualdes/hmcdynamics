@@ -48,15 +48,24 @@ force_recompile <- function(basepath, model_names = models) {
 }
 
 genpath <- function(model, branch, dim, rho, rep, thing = NULL) {
-    dim <- stringr::str_pad(dim, width = 3, pad = 0)
-    rho <- stringr::str_pad(rho * 100, width = 2, pad = 0)
-    rep <- stringr::str_pad(rep, width = 3, pad = 0)
-
     path <- glue("output/{model}_{branch}_")
     if (!is.null(thing)) {
         path <- glue(path, "{thing}_")
     }
-    glue(path, "{rep}rep_{dim}d_{rho}c.csv.gz")
+
+    if (model == "german_credit") {
+
+        path <- glue(path, "{rep}rep.csv.gz")
+
+    } else {
+
+        dim <- stringr::str_pad(dim, width = 3, pad = 0)
+        rho <- stringr::str_pad(rho * 100, width = 2, pad = 0)
+        rep <- stringr::str_pad(rep, width = 3, pad = 0)
+        path <- glue(path, "{rep}rep_{dim}d_{rho}c.csv.gz")
+
+    }
+    path
 }
 
 use_seed <- function(model, branch, dim, rho, rep) {
@@ -70,6 +79,14 @@ use_seed <- function(model, branch, dim, rho, rep) {
     }
 
     seed
+}
+
+use_adapt_deleta <- function(model) {
+    adapt_delta <- 0.8
+    if (model == "german_credit") {
+        adapt_delta <- 0.95
+    }
+    adapt_delta
 }
 
 write_output <- function(fit, model, branch, dim, rho, rep) {
